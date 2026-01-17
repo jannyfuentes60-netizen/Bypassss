@@ -1,5 +1,4 @@
 pyTelegramBotAPI
-yt-dlp
 pydub
 flask
-
+audioop-lts
