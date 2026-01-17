@@ -9,15 +9,15 @@ except ImportError:
 
 import telebot, os, random
 from telebot import types
-from pydub import AudioSegment, effects
+from pydub import AudioSegment
 from yt_dlp import YoutubeDL
 from flask import Flask
 from threading import Thread
 
-# --- SERVIDOR PARA RENDER ---
+# --- SERVIDOR PARA RENDER (NECESARIO PARA QUE NO SE APAGUE) ---
 app = Flask('')
 @app.route('/')
-def home(): return "DJ FARAON V4 STATUS: ONLINE 🔥"
+def home(): return "DJ FARAON V4 - STATUS: OPERATIVO 🔥"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -26,23 +26,37 @@ def run():
 def keep_alive():
     Thread(target=run).start()
 
-# --- CONFIGURACIÓN ---
+# --- CONFIGURACIÓN DEL BOT ---
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 user_states = {}
 
-# --- FUNCIÓN DE EFECTOS ---
-def apply_pro_fx(audio):
-    fx_list = ['highpass', 'lowpass', 'normal']
-    choice = random.choice(fx_list)
-    if choice == 'highpass': return audio.high_pass_filter(1200)
-    if choice == 'lowpass': return audio.low_pass_filter(1500)
-    return audio
+# --- OPCIONES DE YOUTUBE (CON TUS EXTRACTOR-ARGS) ---
+YDL_OPTIONS = {
+    'format': 'bestaudio/best',
+    'quiet': True,
+    'noplaylist': True,
+    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    'nocheckcertificate': True,
+    'geo_bypass': True,
+    'extractor_args': {
+        'youtube': {
+            'player_skip': ['webpage', 'configs'],
+            'player_client': ['android', 'web']
+        },
+        'youtubetab': {
+            'skip': ['webpage']
+        }
+    }
+}
+
+if os.path.exists("cookies.txt"):
+    YDL_OPTIONS['cookiefile'] = 'cookies.txt'
 
 # --- COMANDOS ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "🔥 **DJ FARAON V4** en la casa.\nUsa `/buscar nombre_de_la_rola` para mezclar.")
+    bot.reply_to(message, "🔥 **DJ FARAON V4** listo.\nUsa `/buscar nombre_de_la_rola` para empezar.")
 
 @bot.message_handler(commands=['buscar'])
 def search_youtube(message):
@@ -51,25 +65,10 @@ def search_youtube(message):
         bot.reply_to(message, "¡DJ! Pon el nombre: `/buscar Gata Only` 🎵")
         return
     
-    bot.send_message(message.chat.id, f"🔍 Buscando '{query}'...")
+    bot.send_message(message.chat.id, f"🔍 Buscando '{query}' con bypass...")
     
     try:
-        # Configuración agresiva para evitar bloqueos
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'quiet': True,
-            'noplaylist': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            'nocheckcertificate': True,
-            'geo_bypass': True,
-            'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
-        }
-        
-        # Carga cookies si existen en el repositorio
-        if os.path.exists("cookies.txt"):
-            ydl_opts['cookiefile'] = 'cookies.txt'
-
-        with YoutubeDL(ydl_opts) as ydl:
+        with YoutubeDL(YDL_OPTIONS) as ydl:
             info = ydl.extract_info(f"ytsearch1:{query}", download=False)['entries'][0]
             title = info['title']
             url = info['webpage_url']
@@ -80,37 +79,32 @@ def search_youtube(message):
         markup.add(types.InlineKeyboardButton("📥 Descargar y Mixear", callback_data="start_dl"))
         bot.send_message(message.chat.id, f"💎 **Encontrado:** {title}\n¿Lo procesamos?", reply_markup=markup)
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Error de YouTube: {e}\n(Revisa que tu cookies.txt sea formato Netscape)")
+        bot.send_message(message.chat.id, f"❌ Error: {e}")
 
 @bot.callback_query_handler(func=lambda call: call.data == "start_dl")
 def download_process(call):
     chat_id = call.message.chat.id
     url = user_states[chat_id]['url']
-    bot.edit_message_text(f"Bajando y aplicando Bypass... 🛠️", chat_id, call.message.message_id)
+    bot.edit_message_text(f"Bajando audio y aplicando efectos... 🛠️", chat_id, call.message.message_id)
     
     try:
         path = f"song_{chat_id}.mp3"
-        ydl_opts = {
-            'format': 'bestaudio/best',
+        download_opts = YDL_OPTIONS.copy()
+        download_opts.update({
             'outtmpl': f'song_{chat_id}.%(ext)s',
             'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '128'}],
-            'quiet': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-        }
-        
-        if os.path.exists("cookies.txt"):
-            ydl_opts['cookiefile'] = 'cookies.txt'
+        })
 
-        with YoutubeDL(ydl_opts) as ydl: ydl.download([url])
+        with YoutubeDL(download_opts) as ydl: ydl.download([url])
         
         if not os.path.exists("Intrucidity.wav"):
-            bot.send_message(chat_id, "⚠️ Error: Falta 'Intrucidity.wav' en GitHub.")
+            bot.send_message(chat_id, "⚠️ No encontré el archivo 'Intrucidity.wav'.")
             return
 
         base = AudioSegment.from_file("Intrucidity.wav")
         song = AudioSegment.from_file(path)
         
-        # Bypass: Pitch +3% y Mono
+        # Bypass de copyright: +3% pitch y mono
         song = song._spawn(song.raw_data, overrides={'frame_rate': int(song.frame_rate * 1.03)}).set_frame_rate(44100).set_channels(1)
         
         final = base.append(song, crossfade=2000)
@@ -118,13 +112,13 @@ def download_process(call):
         final.export(out, format="mp3", bitrate="128k")
         
         with open(out, 'rb') as f:
-            bot.send_audio(chat_id, f, caption="✅ **MIX LISTO**\n[ CORRUPTED ]")
+            bot.send_audio(chat_id, f, caption="✅ **MIX LISTO**\n[ BYPASS OK ]")
             
         os.remove(path)
         os.remove(out)
         
     except Exception as e:
-        bot.send_message(chat_id, f"❌ Error: {e}")
+        bot.send_message(chat_id, f"❌ Error en proceso: {e}")
 
 if __name__ == "__main__":
     keep_alive()
