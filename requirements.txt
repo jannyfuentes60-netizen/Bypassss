@@ -2,3 +2,6 @@ pyTelegramBotAPI
 pydub
 flask
 audioop-lts
+librosa
+soundfile
+numpy
