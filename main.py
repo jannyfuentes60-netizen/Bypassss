@@ -3,7 +3,6 @@ import sys
 try:
     import audioop
 except ImportError:
-    # Si no existe, creamos un objeto vacío para que pydub no explote al iniciar
     from types import ModuleType
     mock_audioop = ModuleType('audioop')
     sys.modules['audioop'] = mock_audioop
@@ -15,12 +14,17 @@ from yt_dlp import YoutubeDL
 from flask import Flask
 from threading import Thread
 
-# --- SERVIDOR PARA MANTENERLO VIVO ---
+# --- SERVIDOR PARA RENDER ---
 app = Flask('')
 @app.route('/')
-def home(): return "YouTube DJ Faraon V4 Online 🔥"
-def run(): app.run(host='0.0.0.0', port=8080)
-def keep_alive(): Thread(target=run).start()
+def home(): return "DJ FARAON V4 STATUS: ONLINE 🔥"
+
+def run():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    Thread(target=run).start()
 
 # --- CONFIGURACIÓN ---
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
@@ -38,7 +42,7 @@ def apply_pro_fx(audio):
 # --- COMANDOS ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "🔥 **DJ FARAON V4** listo.\nUsa `/buscar nombre_de_la_rola` para empezar.")
+    bot.reply_to(message, "🔥 **DJ FARAON V4** en la casa.\nUsa `/buscar nombre_de_la_rola` para mezclar.")
 
 @bot.message_handler(commands=['buscar'])
 def search_youtube(message):
@@ -50,7 +54,21 @@ def search_youtube(message):
     bot.send_message(message.chat.id, f"🔍 Buscando '{query}'...")
     
     try:
-        ydl_opts = {'format': 'bestaudio/best', 'quiet': True, 'noplaylist': True}
+        # Configuración agresiva para evitar bloqueos
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'quiet': True,
+            'noplaylist': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'nocheckcertificate': True,
+            'geo_bypass': True,
+            'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        }
+        
+        # Carga cookies si existen en el repositorio
+        if os.path.exists("cookies.txt"):
+            ydl_opts['cookiefile'] = 'cookies.txt'
+
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch1:{query}", download=False)['entries'][0]
             title = info['title']
@@ -62,7 +80,7 @@ def search_youtube(message):
         markup.add(types.InlineKeyboardButton("📥 Descargar y Mixear", callback_data="start_dl"))
         bot.send_message(message.chat.id, f"💎 **Encontrado:** {title}\n¿Lo procesamos?", reply_markup=markup)
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Error: {e}")
+        bot.send_message(message.chat.id, f"❌ Error de YouTube: {e}\n(Revisa que tu cookies.txt sea formato Netscape)")
 
 @bot.callback_query_handler(func=lambda call: call.data == "start_dl")
 def download_process(call):
@@ -76,13 +94,17 @@ def download_process(call):
             'format': 'bestaudio/best',
             'outtmpl': f'song_{chat_id}.%(ext)s',
             'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '128'}],
-            'quiet': True
+            'quiet': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
         }
+        
+        if os.path.exists("cookies.txt"):
+            ydl_opts['cookiefile'] = 'cookies.txt'
+
         with YoutubeDL(ydl_opts) as ydl: ydl.download([url])
         
-        # Mezcla con Intro
         if not os.path.exists("Intrucidity.wav"):
-            bot.send_message(chat_id, "⚠️ No encontré Intrucidity.wav en GitHub.")
+            bot.send_message(chat_id, "⚠️ Error: Falta 'Intrucidity.wav' en GitHub.")
             return
 
         base = AudioSegment.from_file("Intrucidity.wav")
@@ -96,14 +118,15 @@ def download_process(call):
         final.export(out, format="mp3", bitrate="128k")
         
         with open(out, 'rb') as f:
-            bot.send_audio(chat_id, f, caption="✅ **MIX LISTO**\n[ BYPASS OK ]")
+            bot.send_audio(chat_id, f, caption="✅ **MIX LISTO**\n[ CORRUPTED ]")
             
         os.remove(path)
         os.remove(out)
         
     except Exception as e:
-        bot.send_message(chat_id, f"❌ Fallo: {e}")
+        bot.send_message(chat_id, f"❌ Error: {e}")
 
 if __name__ == "__main__":
     keep_alive()
     bot.polling(none_stop=True)
+
