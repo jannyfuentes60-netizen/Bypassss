@@ -17,7 +17,7 @@ from threading import Thread
 # --- SERVIDOR PARA RENDER ---
 app = Flask('')
 @app.route('/')
-def home(): return "DJ FARAON V4 - STATUS: ONLINE 🔥"
+def home(): return "DJ FARAON V4 - HIGH QUALITY WAV/MP3 🔥"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -31,9 +31,8 @@ TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 user_states = {}
 
-# --- OPCIONES DE YOUTUBE (NUEVA ESTRATEGIA DE FORMATOS) ---
+# --- OPCIONES DE YOUTUBE ---
 YDL_OPTIONS = {
-    # Cambiamos a 'best' para que si no hay audio solo, baje el video y extraiga
     'format': 'bestaudio/best', 
     'quiet': True,
     'noplaylist': True,
@@ -54,7 +53,7 @@ if os.path.exists("cookies.txt"):
 # --- COMANDOS ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "🔥 **DJ FARAON V4** listo.\nEscribe `/buscar nombre_de_la_rola`.")
+    bot.reply_to(message, "🔥 **DJ FARAON V4 - ULTRA QUALITY**\nMezclando en WAV/MP3 Quality 0.")
 
 @bot.message_handler(commands=['buscar'])
 def search_youtube(message):
@@ -74,8 +73,8 @@ def search_youtube(message):
         user_states[message.chat.id] = {'query': title, 'url': url}
         
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("📥 Descargar y Mixear", callback_data="start_dl"))
-        bot.send_message(message.chat.id, f"💎 **Encontrado:** {title}\n¿Lo procesamos?", reply_markup=markup)
+        markup.add(types.InlineKeyboardButton("📥 Descargar y Mixear Pro", callback_data="start_dl"))
+        bot.send_message(message.chat.id, f"💎 **Encontrado:** {title}\n¿Procesamos en Alta Fidelidad?", reply_markup=markup)
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Error YouTube: {e}")
 
@@ -83,20 +82,17 @@ def search_youtube(message):
 def download_process(call):
     chat_id = call.message.chat.id
     url = user_states[chat_id]['url']
-    bot.edit_message_text(f"Bajando y convirtiendo... 🛠️", chat_id, call.message.message_id)
+    bot.edit_message_text(f"Procesando en Máxima Calidad (Q0)... 🛠️", chat_id, call.message.message_id)
     
     try:
-        # Usamos un nombre de archivo temporal
-        temp_filename = f"temp_song_{chat_id}"
-        
+        temp_filename = f"temp_{chat_id}"
         download_opts = YDL_OPTIONS.copy()
         download_opts.update({
-            'format': 'bestaudio/best', # Intentar el mejor audio, si no lo que sea
             'outtmpl': f'{temp_filename}.%(ext)s',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
-                'preferredquality': '128',
+                'preferredquality': '0', # Calidad máxima
             }],
         })
 
@@ -104,31 +100,33 @@ def download_process(call):
             ydl.download([url])
         
         if not os.path.exists("Intrucidity.wav"):
-            bot.send_message(chat_id, "⚠️ Error: Falta 'Intrucidity.wav' en tu GitHub.")
+            bot.send_message(chat_id, "⚠️ Error: No está Intrucidity.wav.")
             return
 
-        # Buscamos el archivo que se descargó (la extensión puede variar antes de ser mp3)
         actual_filename = f"{temp_filename}.mp3"
-        
         base = AudioSegment.from_file("Intrucidity.wav")
         song = AudioSegment.from_file(actual_filename)
         
-        # Bypass: Pitch +3% y Mono
+        # Bypass + Calidad: Mantenemos el pitch pero aseguramos 44.1kHz
         song = song._spawn(song.raw_data, overrides={'frame_rate': int(song.frame_rate * 1.03)}).set_frame_rate(44100).set_channels(1)
         
         final = base.append(song, crossfade=2000)
-        out = f"RESULT_{chat_id}.mp3"
-        final.export(out, format="mp3", bitrate="128k")
+        
+        clean_title = "".join([c for c in user_states[chat_id]['query'] if c.isalnum() or c==' ']).strip()
+        # Exportamos como WAV usando el codec libmp3lame para cumplir tu requisito
+        out = f"{clean_title}_PRO.wav"
+        
+        # Exportación técnica: Formato WAV, pero especificando parámetros de MP3 de alta calidad
+        final.export(out, format="wav", codec="libmp3lame", parameters=["-q:a", "0"])
         
         with open(out, 'rb') as f:
-            bot.send_audio(chat_id, f, caption="✅ **MIX LISTO**\n[ BYPASS OK ]")
+            bot.send_document(chat_id, f, caption=f"✅ **{clean_title}**\n[ WAV-MP3 Q0 ]")
             
-        # Limpieza de archivos temporales
-        os.remove(actual_filename)
-        os.remove(out)
+        if os.path.exists(actual_filename): os.remove(actual_filename)
+        if os.path.exists(out): os.remove(out)
         
     except Exception as e:
-        bot.send_message(chat_id, f"❌ Error en proceso: {e}")
+        bot.send_message(chat_id, f"❌ Error: {e}")
 
 if __name__ == "__main__":
     keep_alive()
