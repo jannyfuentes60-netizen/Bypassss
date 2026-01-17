@@ -10,14 +10,13 @@ except ImportError:
 import telebot, os, random
 from telebot import types
 from pydub import AudioSegment
-from yt_dlp import YoutubeDL
 from flask import Flask
 from threading import Thread
 
 # --- SERVIDOR PARA RENDER ---
 app = Flask('')
 @app.route('/')
-def home(): return "DJ FARAON V4 - YT + OPTIONAL INTRO 🔥"
+def home(): return "DJ FARAON V4 - SOLO ARCHIVOS 🔥"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -29,105 +28,96 @@ def keep_alive():
 # --- CONFIGURACIÓN ---
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
-user_states = {}
-
-# --- OPCIONES DE YOUTUBE ---
-YDL_OPTIONS = {
-    'format': 'bestaudio/best', 
-    'quiet': True,
-    'noplaylist': True,
-    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-    'nocheckcertificate': True,
-    'geo_bypass': True,
-    'extractor_args': {'youtube': {'player_skip': ['webpage', 'configs'], 'player_client': ['android', 'web']}}
-}
-
-if os.path.exists("cookies.txt"):
-    YDL_OPTIONS['cookiefile'] = 'cookies.txt'
+user_files = {} # Para guardar los archivos temporalmente
 
 # --- COMANDOS ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "🔥 **DJ FARAON V4**\nEscribe `/buscar nombre_de_la_rola` para empezar.")
+    bot.reply_to(message, "🔥 **DJ FARAON V4 - MODO MANUAL**\n\n1. Envíame el archivo MP3.\n2. Elige la intro (Oficial o Personal).\n3. Recibe tu WAV/MP3 Q0.")
 
-@bot.message_handler(commands=['buscar'])
-def search_youtube(message):
-    query = message.text.replace('/buscar ', '')
-    if not query or query == '/buscar':
-        bot.reply_to(message, "¡DJ! Pon el nombre: `/buscar Gata Only` 🎵")
+# --- MANEJADOR DE ARCHIVOS ---
+@bot.message_handler(content_types=['audio', 'document'])
+def handle_audio(message):
+    file_info = None
+    file_name = "track"
+
+    if message.content_type == 'audio':
+        file_info = bot.get_file(message.audio.file_id)
+        file_name = message.audio.title or "audio"
+    elif message.content_type == 'document' and message.document.mime_type.startswith('audio/'):
+        file_info = bot.get_file(message.document.file_id)
+        file_name = message.document.file_name or "archivo"
+
+    if not file_info:
+        bot.reply_to(message, "❌ ¡Eso no es música, carnal!")
         return
-    
-    bot.send_message(message.chat.id, f"🔍 Buscando '{query}'...")
-    
-    try:
-        with YoutubeDL(YDL_OPTIONS) as ydl:
-            info = ydl.extract_info(f"ytsearch1:{query}", download=False)['entries'][0]
-            title = info['title']
-            url = info['webpage_url']
-        
-        user_states[message.chat.id] = {'query': title, 'url': url}
-        
-        # PREGUNTA POR LA INTRO
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("✅ SÍ (Intro Personal)", callback_data="use_personal"))
-        markup.add(types.InlineKeyboardButton("❌ NO (Intro Oficial)", callback_data="use_official"))
-        
-        bot.send_message(message.chat.id, f"💎 **Encontrado:** {title}\n\n**¿Quieres usar tu Intro Personal?**", reply_markup=markup)
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Error YouTube: {e}")
 
-@bot.callback_query_handler(func=lambda call: call.data in ["use_personal", "use_official"])
-def download_process(call):
+    # Guardamos datos para la siguiente fase
+    user_files[message.chat.id] = {
+        'file_id': file_info.file_id,
+        'file_name': file_name
+    }
+
+    # Preguntar por la Intro
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("✅ USAR INTRO PERSONAL", callback_data="intro_p"))
+    markup.add(types.InlineKeyboardButton("❌ USAR INTRO OFICIAL", callback_data="intro_o"))
+    
+    bot.reply_to(message, "🎵 Archivo listo. **¿Qué intro le pego?**", reply_markup=markup)
+
+# --- PROCESAMIENTO ---
+@bot.callback_query_handler(func=lambda call: call.data.startswith('intro_'))
+def process_audio(call):
     chat_id = call.message.chat.id
-    if chat_id not in user_states:
-        bot.send_message(chat_id, "❌ Error de sesión, busca de nuevo.")
+    if chat_id not in user_files:
+        bot.send_message(chat_id, "❌ Error, manda el archivo de nuevo.")
         return
 
-    use_personal = (call.data == "use_personal")
-    url = user_states[chat_id]['url']
-    bot.edit_message_text(f"🚀 Procesando con {'Intro Personal' if use_personal else 'Intro Oficial'}...", chat_id, call.message.message_id)
-    
-    try:
-        temp_filename = f"temp_{chat_id}"
-        download_opts = YDL_OPTIONS.copy()
-        download_opts.update({
-            'outtmpl': f'{temp_filename}.%(ext)s',
-            'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '0'}],
-        })
+    use_personal = (call.data == "intro_p")
+    bot.edit_message_text(f"🚀 Procesando con {'Intro Personal' if use_personal else 'Intro Oficial'} (Q0)...", chat_id, call.message.message_id)
 
-        with YoutubeDL(download_opts) as ydl: ydl.download([url])
-        
-        # Definir intro
+    try:
+        # Descargar el MP3 que mandaste
+        file_info = bot.get_file(user_files[chat_id]['file_id'])
+        downloaded = bot.download_file(file_info.file_path)
+        input_p = f"in_{chat_id}.mp3"
+        with open(input_p, 'wb') as f:
+            f.write(downloaded)
+
+        # Seleccionar Intro
         intro_file = "Intro_Personal.wav" if use_personal else "Intrucidity.wav"
         
         if not os.path.exists(intro_file):
-            bot.send_message(chat_id, f"⚠️ Error: No encontré el archivo `{intro_file}` en GitHub.")
+            bot.send_message(chat_id, f"⚠️ Error: No encontré `{intro_file}` en GitHub.")
             return
 
-        actual_filename = f"{temp_filename}.mp3"
+        # Mezclar
         base = AudioSegment.from_file(intro_file)
-        song = AudioSegment.from_file(actual_filename)
-        
-        # Bypass: Pitch +3% y Mono
+        song = AudioSegment.from_file(input_p)
+
+        # Bypass (+3% pitch, Mono, 44.1kHz)
         song = song._spawn(song.raw_data, overrides={'frame_rate': int(song.frame_rate * 1.03)}).set_frame_rate(44100).set_channels(1)
-        
+
         final = base.append(song, crossfade=2000)
         
-        clean_title = "".join([c for c in user_states[chat_id]['query'] if c.isalnum() or c==' ']).strip()
-        out = f"{clean_title}_MIX.wav"
-        
-        # Exportación Q0 WAV/MP3
-        final.export(out, format="wav", codec="libmp3lame", parameters=["-q:a", "0"])
-        
-        with open(out, 'rb') as f:
-            bot.send_document(chat_id, f, caption=f"✅ **{clean_title}**\n[ {'PERSONAL' if use_personal else 'OFICIAL'} ]")
-            
-        os.remove(actual_filename)
-        os.remove(out)
-        del user_states[chat_id]
-        
+        # Nombre de salida
+        clean_name = "".join([c for c in user_files[chat_id]['file_name'] if c.isalnum() or c==' ']).strip()
+        out_name = f"{clean_name}_MIX.wav"
+
+        # Exportación Calidad 0 WAV/MP3
+        final.export(out_name, format="wav", codec="libmp3lame", parameters=["-q:a", "0"])
+
+        # Enviar
+        with open(out_name, 'rb') as f:
+            bot.send_document(chat_id, f, caption=f"✅ **{clean_name}** procesado.")
+
+        # Limpiar
+        os.remove(input_p)
+        os.remove(out_name)
+        del user_files[chat_id]
+
     except Exception as e:
-        bot.send_message(chat_id, f"❌ Error: {e}")
+        bot.send_message(chat_id, f"❌ Falló el proceso: {e}")
 
 if __name__ == "__main__":
     keep_alive()
