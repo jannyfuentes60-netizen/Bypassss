@@ -1,6 +1,7 @@
 import sys
+import os
 
-# --- EL PARCHE DEFINITIVO (INVESTIGADO Y TESTEADO) ---
+# --- PARCHE DE HIERRO PARA AUDIOOP ---
 try:
     import audioop
 except ImportError:
@@ -8,18 +9,9 @@ except ImportError:
         import audioop_lts as audioop
         sys.modules['audioop'] = audioop
     except ImportError:
-        pass
+        print("⚠️ Error Crítico: No se encontró audioop-lts en requirements.txt")
 
-# Si el audioop del sistema está incompleto, forzamos el uso de audioop-lts
-if not hasattr(sys.modules.get('audioop'), 'tostereo'):
-    try:
-        import audioop_lts as audioop_lts
-        sys.modules['audioop'] = audioop_lts
-    except ImportError:
-        # Si llegamos aquí, el requirements.txt no se instaló bien
-        pass
-
-import telebot, os
+import telebot
 from telebot import types
 from pydub import AudioSegment
 from flask import Flask
@@ -28,7 +20,7 @@ from threading import Thread
 # --- SERVIDOR PARA RENDER ---
 app = Flask('')
 @app.route('/')
-def home(): return "DJ FARAON V4 - TOTAL FIX 2026 🔥"
+def home(): return "DJ FARAON V4 - STATUS: READY 🔥"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -37,14 +29,14 @@ def run():
 def keep_alive():
     Thread(target=run).start()
 
-# --- CONFIGURACIÓN DEL BOT ---
+# --- CONFIGURACIÓN ---
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 user_files = {}
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "🔥 **DJ FARAON V4 - SISTEMA REPARADO**\n\n1. Envíame un MP3.\n2. Elige la intro.")
+    bot.reply_to(message, "🔥 **DJ FARAON V4 - MODO LOCAL**\nEnvíame el MP3 y elige tu intro.")
 
 @bot.message_handler(content_types=['audio', 'document'])
 def handle_audio(message):
@@ -87,33 +79,33 @@ def process_audio(call):
         intro_file = "Intro_Personal.wav" if use_personal else "Intrucidity.wav"
         
         if not os.path.exists(intro_file):
-            bot.send_message(chat_id, f"⚠️ Error: Falta {intro_file}")
+            bot.send_message(chat_id, f"⚠️ Error: Falta el archivo {intro_file} en GitHub.")
             return
 
-        # MEZCLA USANDO PYDUB (Ya parchado)
+        # MEZCLA
         base = AudioSegment.from_file(intro_file)
         song = AudioSegment.from_file(input_p)
 
-        # Bypass: +3% Pitch y forzar estéreo/mono correctamente
+        # Bypass: +3% Pitch y Mono
         song = song._spawn(song.raw_data, overrides={'frame_rate': int(song.frame_rate * 1.03)})
-        song = song.set_frame_rate(44100).set_channels(1) # Forzamos Mono para el bypass
+        song = song.set_frame_rate(44100).set_channels(1)
 
         final = base.append(song, crossfade=2000)
         
-        out_name = f"{user_files[chat_id]['file_name']}_MIX.wav"
+        out_name = f"MIXED_{chat_id}.wav"
         
-        # Calidad máxima Q0
+        # Exportación Q0
         final.export(out_name, format="wav", codec="libmp3lame", parameters=["-q:a", "0"])
 
         with open(out_name, 'rb') as f:
-            bot.send_document(chat_id, f, caption="✅ ¡Mezcla lista sin errores!")
+            bot.send_document(chat_id, f, caption=f"✅ {user_files[chat_id]['file_name']} - LISTO")
 
         os.remove(input_p)
         os.remove(out_name)
         del user_files[chat_id]
 
     except Exception as e:
-        bot.send_message(chat_id, f"❌ Error: {e}\n(Verifica que el archivo no sea muy pesado)")
+        bot.send_message(chat_id, f"❌ Error: {e}")
 
 if __name__ == "__main__":
     keep_alive()
